@@ -1,0 +1,216 @@
+# C# / .NET rules
+rules:
+- id: CS-001
+  title: SQL injection via string-built command
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [csharp]
+  pattern: '(SqlCommand|new OleDbCommand|ExecuteReader|ExecuteScalar|ExecuteNonQuery)\s*\([^)]*(\+\s*\w+|\$"|\$@")'
+  context: '(?i)(select|insert|update|delete|where|from|drop|union|exec)'
+  message: SQL command assembled with interpolation/concatenation - SQL injection.
+  remediation: 'Use parameters: cmd.Parameters.AddWithValue("@id", id) or Dapper with @params.'
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli]
+- id: CS-002
+  title: EF Core raw SQL with interpolation
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [csharp]
+  pattern: '\.(FromSqlRaw|ExecuteSqlRaw)\s*\([^)]*(\+\s*\w+|\$")'
+  message: FromSqlRaw/ExecuteSqlRaw with interpolation executes user data as SQL.
+  remediation: Use FromSqlInterpolated / ExecuteSqlInterpolated (parameterized).
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli, efcore]
+- id: CS-003
+  title: BinaryFormatter / legacy deserializer
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [csharp]
+  pattern: '\b(BinaryFormatter|SoapFormatter|NetDataContractSerializer|LosFormatter|ObjectStateFormatter)\b'
+  message: Legacy deserializer executes arbitrary code on crafted input. BinaryFormatter is banned in .NET 8.
+  remediation: Migrate to System.Text.Json / DataContractSerializer with known types.
+  cwe: [CWE-502]
+  owasp: [A08:2021]
+  tags: [deserialization]
+- id: CS-004
+  title: Newtonsoft TypeNameHandling enabled
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [csharp]
+  pattern: 'TypeNameHandling\s*=\s*[\w.]*?(All|Auto|Objects|Arrays)\b'
+  message: TypeNameHandling != None allows gadget-chain deserialization RCE.
+  remediation: Use TypeNameHandling.None or a strict SerializationBinder whitelist.
+  cwe: [CWE-502]
+  owasp: [A08:2021]
+  tags: [deserialization]
+- id: CS-005
+  title: Process.Start with dynamic argument
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [csharp]
+  pattern: 'Process\.Start\s*\([^)]*(\+\s*\w+|\$"|Request\.|Environment\.GetCommandLineArgs)'
+  message: Process.Start with interpolated/user data - command injection.
+  remediation: Fixed binary + ProcessStartInfo.ArgumentList with validated values.
+  cwe: [CWE-78]
+  owasp: [A03:2021]
+  tags: [injection, command]
+- id: CS-006
+  title: Weak cryptography (MD5/SHA1/DES/RC2/ECB)
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [csharp]
+  pattern: '(MD5|SHA1|DESCryptoServiceProvider|RC2CryptoServiceProvider|TripleDES|CipherMode\.ECB)\b'
+  message: Broken or risky cryptographic primitive near credential handling.
+  remediation: Use SHA-256+ for integrity, bcrypt/PBKDF2 for passwords, AES-GCM for encryption.
+  cwe: [CWE-327]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: CS-007
+  title: XXE via unsafe XML reader settings
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [csharp]
+  pattern: '(DtdProcessing\s*=\s*DtdProcessing\.Parse|XmlResolver\s*=\s*new XmlUrlResolver|new XmlTextReader)'
+  context: '(?i)(xml|dtd|request|input|file|upload)'
+  message: XML parser resolves external entities - XXE.
+  remediation: DtdProcessing.Prohibit + XmlResolver = null.
+  cwe: [CWE-611]
+  owasp: [A05:2021]
+  tags: [xxe]
+- id: CS-008
+  title: Request validation disabled / raw HTML output
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [csharp]
+  pattern: '(ValidateRequest\s*=\s*["'']?false|RequestValidationEnabled\s*=\s*["'']?false|Html\.Raw|@Html\.Raw)'
+  message: Request validation off or raw HTML output - XSS exposure.
+  remediation: Re-enable validation; encode output (@value / Html.Encode).
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [xss]
+- id: CS-009
+  title: Cookie explicitly weak (HttpOnly/Secure false)
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [csharp]
+  pattern: '(HttpOnly\s*=\s*false|Secure\s*=\s*false)'
+  context: '(?i)(cookie)'
+  message: Cookie explicitly weak (HttpOnly=false or Secure=false).
+  remediation: Set HttpOnly=true, Secure=true, SameSite=Lax/Strict.
+  cwe: [CWE-614, CWE-1004]
+  owasp: [A05:2021]
+  tags: [cookie]
+- id: CS-010
+  title: CORS AllowAnyOrigin
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [csharp]
+  pattern: '(AllowAnyOrigin\(\)|WithOrigins\(\s*"\*")'
+  context: '(?i)(credential|cors|origin|builder)'
+  message: CORS allows any origin. If AllowCredentials is also set the API is exposed cross-site.
+  remediation: 'WithOrigins("https://...") allowlist; never AnyOrigin+AllowCredentials.'
+  cwe: [CWE-942]
+  owasp: [A05:2021]
+  tags: [cors]
+- id: CS-011
+  title: LDAP/XPath/regex injection candidate
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [csharp]
+  pattern: '(new DirectorySearcher|XPathNavigator|new Regex)\s*\([^)]*(\+\s*\w+|\$"|Request\.)'
+  message: Interpreter input built from request data - injection into LDAP/XPath/Regex.
+  remediation: 'Escape input (LDAP: EscapeFilterString); avoid interpolated queries.'
+  cwe: [CWE-90, CWE-643]
+  owasp: [A03:2021]
+  tags: [injection]
+- id: CS-012
+  title: SSRF candidate (request value -> outbound HTTP)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [csharp]
+  source: '(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*(Request\.(Query|Form|Headers|QueryString|RouteData)|HttpContext\.Request|\[From(Query|Body|Route|Header)\])'
+  sink: '(HttpClient\.(Get|Post|Send)|new HttpRequestMessage|WebClient\.(Download|Open)|WebRequest\.Create|RestClient\.(Execute|Get))\s*\('
+  window: 20
+  message: Request-controlled value reaches outbound HTTP - SSRF.
+  remediation: Whitelist hosts; block internal ranges.
+  cwe: [CWE-918]
+  owasp: [A10:2021]
+  tags: [ssrf]
+- id: CS-013
+  title: Path traversal candidate
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [csharp]
+  source: '(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*(Request\.(Query|Form|QueryString)|HttpContext\.Request|\[From(Query|Body|Route)\])'
+  sink: '(File\.(Read|Open|ReadAll)|new StreamReader|Path\.(Combine|GetFullPath)|PhysicalFile|Server\.MapPath)\s*\('
+  window: 20
+  message: User-controlled value reaches a filesystem path - traversal.
+  remediation: Path.GetFullPath + verify result stays under a base directory.
+  cwe: [CWE-22]
+  owasp: [A01:2021]
+  tags: [traversal]
+- id: CS-014
+  title: Hard-coded JWT/HMAC signing key in code
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [csharp]
+  pattern: '(new SymmetricSecurityKey|Encoding\.(UTF8|ASCII)\.GetBytes\s*\(\s*"[^"]{8,}")'
+  context: '(?i)(key|secret|sign|hmac|jwt|token)'
+  message: Symmetric signing key literal in source - anyone with the repo can mint tokens.
+  remediation: Load key from Key Vault/secret store; rotate.
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [jwt, secrets]
+- id: CS-015
+  title: Swagger/OpenAPI enabled (verify environment gate)
+  type: pattern
+  severity: LOW
+  confidence: medium
+  languages: [csharp]
+  pattern: '(UseSwagger|UseSwaggerUI|MapSwagger)\s*\('
+  context: '(?i)^(?![^\n]*(IsDevelopment|env\.|Environment))'
+  message: Swagger UI registered - verify it is gated to non-production environments or authenticated.
+  remediation: Gate behind app.Environment.IsDevelopment() or auth.
+  cwe: [CWE-540]
+  owasp: [A05:2021]
+  tags: [config]
+- id: CS-016
+  title: '[AllowAnonymous] on a controller/action (advisory)'
+  type: pattern
+  severity: LOW
+  confidence: low
+  languages: [csharp]
+  pattern: '\[AllowAnonymous\]'
+  message: Endpoint skips authentication - verify it is intentionally public (login/health).
+  remediation: Remove if the endpoint should require auth; document intentional public endpoints.
+  cwe: [CWE-306]
+  owasp: [A01:2021]
+  tags: [dotnet, auth]
+- id: CS-017
+  title: EF Core global query filter disabled
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [csharp]
+  pattern: '\.IgnoreQueryFilters\s*\('
+  message: IgnoreQueryFilters bypasses tenant/soft-delete filters - cross-tenant data leak risk.
+  remediation: Avoid outside admin tooling; audit each call site.
+  cwe: [CWE-639]
+  owasp: [A01:2021]
+  tags: [efcore, tenancy]

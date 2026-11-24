@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forge-sec"
+version = "0.2.0"
+description = "forge-sec: deterministic security scanner orchestrator (SAST + secrets + DB + SCA) with unified reporting. No AI."
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0", "requests>=2.31"]
+
+[project.optional-dependencies]
+python-scan = ["bandit>=1.7"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+forge-sec = "forge_sec.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["forge_sec*"]
+
+[tool.setuptools.package-data]
+forge_sec = ["rules_builtin/*.yml", "report/templates/*.html"]

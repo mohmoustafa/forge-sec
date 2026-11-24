@@ -1,0 +1,88 @@
+# Database / SQL rules - run on .sql files and migrations kept out of default excludes
+rules:
+- id: SQL-001
+  title: GRANT ALL / overly broad privileges
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [sql]
+  pattern: 'GRANT\s+(ALL\s+(PRIVILEGES\s+)?ON|ALL\b)|GRANT\s+\w+.*TO\s+["'']?(public|root|\*)'
+  message: Broad privilege grant. public/* recipients expose the object to every role.
+  remediation: Grant least-privilege per role (SELECT/INSERT on specific tables).
+  cwe: [CWE-732]
+  owasp: [A01:2021]
+  tags: [privileges]
+- id: SQL-002
+  title: Destructive statement without WHERE
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [sql]
+  pattern: '(DELETE\s+FROM\s+\w+\s*;|UPDATE\s+\w+\s+SET[^;]*;(?![^;]*WHERE)|TRUNCATE\s+(TABLE\s+)?\w+|DROP\s+(TABLE|DATABASE|SCHEMA)\s+(?!IF\s+EXISTS)\w+)'
+  message: Destructive statement without a visible WHERE/IF EXISTS guard - verify it is intentional.
+  remediation: Add WHERE / IF EXISTS; protect migrations with explicit review.
+  cwe: [CWE-770]
+  owasp: [A05:2021]
+  tags: [destructive]
+- id: SQL-003
+  title: Dynamic SQL built by concatenation (EXECUTE IMMEDIATE / sp_executesql)
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [sql]
+  pattern: '(EXECUTE\s+IMMEDIATE\s+\w+\s*\|\||sp_executesql\s+@|EXEC\s*\(\s*@|PREPARE\s+\w+\s+FROM\s+\w+\s*\|\|)'
+  message: Dynamic SQL assembled from variables - injection surface inside the database.
+  remediation: Use parameterized EXECUTE ... USING / parameter bind variables.
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli, dynamic-sql]
+- id: SQL-004
+  title: Plaintext password stored in migration/seed
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [sql]
+  pattern: '(?i)(password|passwd|pwd)\b[^;]*[''"][^''"]{4,}[''"]'
+  context: '(?i)(password|passwd|pwd)'
+  message: Literal password value in SQL - likely a hard-coded credential or seed secret.
+  remediation: Hash before insert (bcrypt/argon2); inject secrets via env.
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [secrets]
+- id: SQL-005
+  title: Missing row-level security on sensitive table (advisory)
+  type: file
+  absent: true
+  severity: MEDIUM
+  confidence: low
+  languages: [sql]
+  pattern: 'ROW\s+LEVEL\s+SECURITY|ENABLE\s+ROW|CREATE\s+POLICY'
+  message: This SQL file defines schema but never enables RLS/policies - verify tenant isolation is enforced elsewhere.
+  remediation: 'Postgres: ALTER TABLE ... ENABLE ROW LEVEL SECURITY + CREATE POLICY.'
+  cwe: [CWE-284]
+  owasp: [A01:2021]
+  tags: [rls, tenancy]
+- id: SQL-006
+  title: xp_cmdshell / dangerous extended feature enabled
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [sql]
+  pattern: '(xp_cmdshell|sp_OACreate|DBMS_SCHEDULER.*EXTERNAL|utl_http|utl_smtp)'
+  message: Dangerous DB feature used - OS command execution / outbound network from inside the database.
+  remediation: Disable the feature unless strictly required; restrict its EXECUTE grant.
+  cwe: [CWE-749]
+  owasp: [A05:2021]
+  tags: [features]
+- id: SQL-007
+  title: Weak/default database user (advisory)
+  type: pattern
+  severity: MEDIUM
+  confidence: low
+  languages: [sql]
+  pattern: "(CREATE\\s+(USER|LOGIN)\\s+(root|admin|sa|test|app)\\b|IDENTIFIED\\s+BY\\s+['\"](root|admin|password|1234|changeme))"
+  message: Default/weak user name or weak literal password in user creation.
+  remediation: Use unique service accounts and generated secrets.
+  cwe: [CWE-521]
+  owasp: [A07:2021]
+  tags: [auth]

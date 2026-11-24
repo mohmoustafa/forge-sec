@@ -1,0 +1,4 @@
+#!/bin/sh
+# Copy to .git/hooks/pre-commit (chmod +x). Scans staged code fast.
+forge-sec scan . --offline --format json --fail-on CRITICAL \
+  || { echo "forge-sec: CRITICAL findings - commit blocked"; exit 1; }

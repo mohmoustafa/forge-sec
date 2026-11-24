@@ -1,0 +1,5 @@
+{"packages":[
+ {"name":"laravel/framework","version":"8.24.0"},
+ {"name":"guzzlehttp/guzzle","version":"6.5.5"},
+ {"name":"phpunit/phpunit","version":"9.5.0"}
+]}

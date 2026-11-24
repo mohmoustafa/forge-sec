@@ -1,0 +1,76 @@
+# Frontend rules: React/JSX + Vue + browser-side token/XSS hygiene
+rules:
+- id: FE-001
+  title: dangerouslySetInnerHTML
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript, vue]
+  pattern: 'dangerouslySetInnerHTML'
+  message: React escapes by default; dangerouslySetInnerHTML injects raw markup - XSS if value carries user data.
+  remediation: Sanitize with DOMPurify before injection.
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [react, xss]
+- id: FE-002
+  title: Vue v-html with dynamic binding
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [vue]
+  pattern: 'v-html\s*=\s*["''][^"'']+'
+  message: v-html renders raw HTML - XSS with user-controlled content.
+  remediation: Prefer {{ }} interpolation or sanitize the bound value.
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [vue, xss]
+- id: FE-003
+  title: 'href/src bound to javascript: scheme'
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [javascript, typescript, vue]
+  pattern: '(href|src)\s*=\s*["''`]?\s*javascript:|:href\s*=\s*["'']javascript:'
+  message: 'javascript: URL executes script - XSS.'
+  remediation: 'Block javascript: schemes; use router navigation.'
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [xss]
+- id: FE-004
+  title: Credentials/tokens in localStorage
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript, vue]
+  pattern: 'localStorage\.(setItem|getItem)\s*\(|sessionStorage\.(setItem|getItem)\s*\('
+  context: '(?i)(token|jwt|secret|password|auth|session|key)'
+  message: Tokens in localStorage are readable by any XSS payload - prefer httpOnly cookies.
+  remediation: Store session tokens in httpOnly+Secure cookies, not web storage.
+  cwe: [CWE-922]
+  owasp: [A07:2021]
+  tags: [storage, auth]
+- id: FE-005
+  title: target=_blank without rel=noopener
+  type: pattern
+  severity: LOW
+  confidence: high
+  languages: [javascript, typescript, vue]
+  pattern: 'target\s*=\s*["'']_blank["''](?![^\n>]*noopener)'
+  message: 'target=_blank without rel="noopener" allows the opened page to script the opener (tabnabbing).'
+  remediation: 'Add rel="noopener noreferrer".'
+  cwe: [CWE-1022]
+  owasp: [A05:2021]
+  tags: [xss, html]
+- id: FE-006
+  title: postMessage without origin check
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript, vue]
+  pattern: 'postMessage\s*\([^)]*["'']\*|addEventListener\(\s*["'']message["'']\s*,'
+  context: '(?i)^(?![^\n]*(origin|source\.origin|e\.origin|event\.origin))'
+  message: postMessage with wildcard origin or message listener without visible origin check - cross-origin data leak/injection.
+  remediation: Pin target origin; verify event.origin on receivers.
+  cwe: [CWE-940]
+  owasp: [A04:2021]
+  tags: [xss, postmessage]

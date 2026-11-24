@@ -1,0 +1,24 @@
+# Copy to .github/workflows/forge-sec.yml in the target repo.
+name: forge-sec
+on: [push, pull_request]
+permissions:
+  security-events: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install forge-sec
+        run: pip install git+https://github.com/<org>/forge-sec.git
+      - name: Baseline-aware scan (new findings only on PRs)
+        run: |
+          forge-sec scan . --format all --fail-on HIGH \
+            ${{ github.event_name == 'pull_request' && '--new-only' || '' }}
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with: {sarif_file: .forge-sec/reports/forge-sec-report.sarif}
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with: {name: forge-sec-report, path: .forge-sec/reports/}

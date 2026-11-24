@@ -1,0 +1,221 @@
+# JavaScript / TypeScript / NestJS / Express rules
+rules:
+- id: JS-001
+  title: eval() / new Function() on dynamic input
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [javascript, typescript]
+  pattern: '\b(eval|new Function)\s*\('
+  context: '(?i)(req\.|request|input|param|query|body|user|raw|payload)'
+  message: eval/new Function reached by request-derived input - remote code execution.
+  remediation: Remove dynamic evaluation; use JSON.parse or a real parser/whitelist.
+  cwe: [CWE-95]
+  owasp: [A03:2021]
+  tags: [injection, rce]
+- id: JS-002
+  title: Command injection via child_process
+  type: pattern
+  severity: CRITICAL
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: '\b(exec|execSync|spawnSync?)\s*\([^)]*(req\.|request\.|`[^`]*\$\{|\+\s*(req|request|input|param|user|raw))'
+  message: child_process call with template/concatenated input - command injection.
+  remediation: Use execFile/spawn with an argument array; never a shell string with user data.
+  fix_example: "execFile('git', ['status', safeDir], cb)"
+  cwe: [CWE-78]
+  owasp: [A03:2021]
+  tags: [injection, command]
+- id: JS-003
+  title: SQL injection via template/concatenated query
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [javascript, typescript]
+  pattern: '\.(query|execute|raw|rawQuery)\s*\(`[^`]*\$\{|\.(query|execute)\s*\([^)]*\+\s*(req|request|input|param|user|id)'
+  message: SQL statement assembled with template literal/concatenation - SQL injection.
+  remediation: Use parameterized queries ($1 placeholders) or the query builder API.
+  fix_example: "await pool.query('SELECT * FROM t WHERE id = $1', [id])"
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli]
+- id: JS-004
+  title: TypeORM query-builder clause with interpolation
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [javascript, typescript]
+  pattern: '\.(where|andWhere|orWhere|having|orderBy)\s*\(`[^`]*\$\{|\.where\s*\(["''][^"'']*\+\s*\w+'
+  message: Query-builder clause assembled with interpolation - SQL injection via WHERE/ORDER.
+  remediation: "Use parameter binding: .where('id = :id', { id })"
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli, typeorm]
+- id: JS-005
+  title: JWT signed/verified with hard-coded secret
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: 'jwt\.(verify|sign)\s*\([^)]*["''][^"'']{8,}["'']\s*[,)]'
+  context: '(?i)(secret|key|jwt)'
+  message: jwt.verify/sign with a literal secret - forgeable tokens if leaked.
+  remediation: "Load secret from env; pin algorithms: { algorithms: ['RS256'] }."
+  cwe: [CWE-347, CWE-798]
+  owasp: [A02:2021]
+  tags: [jwt, auth]
+- id: JS-006
+  title: JWT algorithm confusion (verify without algorithm list)
+  type: pattern
+  severity: HIGH
+  confidence: low
+  languages: [javascript, typescript]
+  pattern: 'jwt\.verify\s*\((?![^\n)]*algorithms)'
+  message: jwt.verify without explicit allowed algorithms - RS256->HS256 confusion risk.
+  remediation: "Pass { algorithms: [...] } explicitly."
+  cwe: [CWE-347]
+  owasp: [A02:2021]
+  tags: [jwt]
+- id: JS-007
+  title: CORS wildcard origin
+  type: pattern
+  severity: MEDIUM
+  confidence: high
+  languages: [javascript, typescript]
+  pattern: '(cors\(\s*\)|origin\s*[:=]\s*["'']\*|enableCors\(\s*\{\s*origin:\s*(true|["'']\*)|Access-Control-Allow-Origin["'']?\s*[,=]\s*["'']\*)'
+  context: '(?i)(credential|origin|cors|\*)'
+  message: CORS allows any origin. With credentials this exposes the API cross-site.
+  remediation: Restrict origin to an explicit allowlist.
+  cwe: [CWE-942]
+  owasp: [A05:2021]
+  tags: [cors]
+- id: JS-008
+  title: Insecure randomness for security tokens
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: 'Math\.random\(\)'
+  context: '(?i)(token|secret|key|salt|nonce|otp|password|session|csrf|uuid)'
+  message: Math.random is not cryptographically secure.
+  remediation: Use crypto.randomBytes / crypto.randomUUID / webcrypto getRandomValues.
+  cwe: [CWE-338]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: JS-009
+  title: Weak hash (md5/sha1) near credential handling
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: 'createHash\(\s*["''](md5|sha1)["'']'
+  context: '(?i)(pass|pwd|secret|cred|auth|token)'
+  message: MD5/SHA1 used near password handling.
+  remediation: Use bcrypt/argon2/scrypt.
+  cwe: [CWE-327]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: JS-010
+  title: SSRF candidate (request value -> outbound request)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [javascript, typescript]
+  source: '(?P<var>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*.*(req\.(query|body|params|headers|url)|request\.(query|body)|@Query|@Body|@Param)'
+  sink: '(axios\.(get|post|put|delete|request)|fetch|got|request|http\.get|https\.get)\s*\('
+  window: 20
+  message: Request-controlled value flows into an outbound HTTP call - SSRF.
+  remediation: Whitelist hosts; block internal ranges; resolve+pin DNS.
+  cwe: [CWE-918]
+  owasp: [A10:2021]
+  tags: [ssrf]
+- id: JS-011
+  title: Path traversal candidate (request value -> fs path)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [javascript, typescript]
+  source: '(?P<var>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*.*(req\.(query|body|params)|request\.(query|body)|@Query|@Body|@Param)'
+  sink: '(fs\.(readFile|readFileSync|createReadStream|writeFile|unlink|readdir)|res\.sendFile|path\.(join|resolve)|createReadStream)\s*\('
+  window: 20
+  message: User-controlled value reaches a filesystem path - path traversal.
+  remediation: Resolve against a base dir and reject paths escaping it.
+  cwe: [CWE-22]
+  owasp: [A01:2021]
+  tags: [traversal]
+- id: JS-012
+  title: Prototype pollution sink (merge/assign of request body)
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: '(Object\.assign|_\.merge|lodash\.merge|deepmerge)\s*\([^)]*(req\.body|request\.body|@Body)'
+  message: Merging request body into objects enables __proto__ pollution.
+  remediation: Pick explicit fields or use a DTO/validation pipe (class-validator).
+  cwe: [CWE-1321]
+  owasp: [A03:2021]
+  tags: [prototype-pollution]
+- id: JS-013
+  title: Unescaped HTML sink (innerHTML/document.write)
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: '(dangerouslySetInnerHTML|\.innerHTML\s*=|document\.write\s*\()'
+  context: '(?i)(req|input|user|data|param|props|comment|html)'
+  message: Unescaped HTML injection - stored/reflected XSS.
+  remediation: Sanitize with DOMPurify or use textContent.
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [xss]
+- id: JS-014
+  title: RegExp built from user input (ReDoS candidate)
+  type: pattern
+  severity: LOW
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: 'new RegExp\s*\([^)]*(req\.|input|param|user)'
+  message: Regular expression built from user input - ReDoS via catastrophic backtracking.
+  remediation: Bound input length; prefer fixed patterns or safe-regex check.
+  cwe: [CWE-1333]
+  owasp: [A05:2021]
+  tags: [redos]
+- id: JS-015
+  title: TLS verification disabled
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [javascript, typescript]
+  pattern: '(NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["'']?0|rejectUnauthorized\s*:\s*false)'
+  message: TLS verification disabled - MITM exposure.
+  remediation: Remove the override; fix certificate chain.
+  cwe: [CWE-295]
+  owasp: [A02:2021]
+  tags: [tls]
+
+- id: JS-016
+  title: NestJS DTO body without class-validator decorators (advisory)
+  type: file
+  absent: true
+  severity: LOW
+  confidence: low
+  languages: [typescript]
+  pattern: '(IsString|IsNumber|IsEmail|IsNotEmpty|IsOptional|Matches|Length|Min|Max|Allow)\s*\('
+  context: '(?i)dto'
+  message: File looks like a DTO but has no class-validator decorators - unvalidated input reaches the app.
+  remediation: Annotate fields with class-validator decorators and use ValidationPipe globally.
+  cwe: [CWE-20]
+  owasp: [A04:2021]
+  tags: [nestjs, validation]
+- id: JS-017
+  title: GraphQL introspection/playground left enabled
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [javascript, typescript]
+  pattern: '(playground\s*:\s*true|introspection\s*:\s*true)'
+  message: GraphQL playground/introspection enabled - schema disclosure in production.
+  remediation: 'Disable outside development: introspection: env === "development".'
+  cwe: [CWE-540]
+  owasp: [A05:2021]
+  tags: [graphql, config]

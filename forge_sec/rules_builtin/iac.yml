@@ -1,0 +1,201 @@
+# Infrastructure-as-code rules: Dockerfile, docker-compose, nginx, appsettings
+rules:
+# ---------- Dockerfile ----------
+- id: IAC-DK-001
+  title: Container runs as root (no USER directive)
+  type: file
+  absent: true
+  severity: HIGH
+  confidence: high
+  languages: [dockerfile]
+  pattern: '^\s*USER\s+\w+'
+  message: Dockerfile has no USER instruction - the container runs as root.
+  remediation: 'Add: RUN useradd -r app && USER app'
+  cwe: [CWE-250]
+  owasp: [A05:2021]
+  tags: [docker, container]
+- id: IAC-DK-002
+  title: Secret material in ENV/ARG
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [dockerfile]
+  pattern: '(?i)^\s*(ENV|ARG)\s+\w*(PASSWORD|SECRET|TOKEN|API_?KEY|PRIVATE)\w*\s*='
+  message: Secret baked into an image layer - visible via docker history.
+  remediation: Use build secrets (--mount=type=secret) or runtime env injection.
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [docker, secrets]
+- id: IAC-DK-003
+  title: ADD with remote URL
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [dockerfile]
+  pattern: '^\s*ADD\s+https?://'
+  message: 'ADD fetches a remote URL without integrity verification - supply-chain risk.'
+  remediation: 'curl|wget + verify checksum, then COPY.'
+  cwe: [CWE-494]
+  owasp: [A08:2021]
+  tags: [docker, supply-chain]
+- id: IAC-DK-004
+  title: Base image pinned to :latest
+  type: pattern
+  severity: MEDIUM
+  confidence: high
+  languages: [dockerfile]
+  pattern: '^\s*FROM\s+[\w./-]+:latest\b'
+  message: 'Unpinned base image - builds are not reproducible and may pull a compromised tag.'
+  remediation: 'Pin by version or digest (image@sha256:...).'
+  cwe: [CWE-829]
+  owasp: [A08:2021]
+  tags: [docker, supply-chain]
+- id: IAC-DK-005
+  title: Package install without version pinning / cleanup
+  type: pattern
+  severity: LOW
+  confidence: low
+  languages: [dockerfile]
+  pattern: '(apt-get install|apk add|yum install)\s+(?!.*(--no-install-recommends|--no-cache))'
+  message: Package install without recommended hygiene flags - larger attack surface.
+  remediation: 'apt-get install -y --no-install-recommends / apk add --no-cache.'
+  cwe: [CWE-1104]
+  owasp: [A05:2021]
+  tags: [docker]
+# ---------- docker-compose ----------
+- id: IAC-DC-001
+  title: Privileged container
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [compose]
+  pattern: 'privileged\s*:\s*true'
+  message: 'privileged: true gives the container full host access.'
+  remediation: Remove; grant only needed capabilities via cap_add.
+  cwe: [CWE-250]
+  owasp: [A05:2021]
+  tags: [compose, container]
+- id: IAC-DC-002
+  title: Sensitive port bound to all interfaces
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [compose]
+  pattern: '0\.0\.0\.0:(5432|3306|1433|6379|27017|9200|1521|3389|2375)\b|["'']?(5432|3306|1433|6379|27017|9200|1521):[0-9]+["'']?\s*(#.*)?$'
+  message: Database/service port exposed. Binding 0.0.0.0 or publishing the port makes it reachable from the network.
+  remediation: Bind to 127.0.0.1 or keep services on the internal compose network.
+  cwe: [CWE-668]
+  owasp: [A05:2021]
+  tags: [compose, network]
+- id: IAC-DC-003
+  title: Hard-coded password in compose environment
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [compose]
+  pattern: '(?i)(PASSWORD|SECRET|TOKEN|API_?KEY|ROOT_PW)\s*[:=]\s*["'']?[^$\s"'']{4,}'
+  message: Credential literal in compose file.
+  remediation: Use ${VAR} from a non-committed env file or a secrets store.
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [compose, secrets]
+- id: IAC-DC-004
+  title: Docker socket mounted into container
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [compose]
+  pattern: '/var/run/docker\.sock'
+  message: Mounting docker.sock = root on the host.
+  remediation: Avoid; if needed use a socket proxy with least privilege.
+  cwe: [CWE-250]
+  owasp: [A05:2021]
+  tags: [compose, container]
+- id: IAC-DC-005
+  title: no-new-privileges / read_only hardening missing (advisory)
+  type: file
+  absent: true
+  severity: LOW
+  confidence: low
+  languages: [compose]
+  pattern: '(no-new-privileges|read_only\s*:\s*true|cap_drop)'
+  message: Compose file applies no container hardening options anywhere.
+  remediation: 'Consider: security_opt: [no-new-privileges:true], read_only: true, cap_drop: [ALL].'
+  cwe: [CWE-16]
+  owasp: [A05:2021]
+  tags: [compose, hardening]
+# ---------- nginx ----------
+- id: IAC-NX-001
+  title: autoindex enabled (directory listing)
+  type: pattern
+  severity: MEDIUM
+  confidence: high
+  languages: [nginx]
+  pattern: 'autoindex\s+on'
+  message: Directory listing exposes file structure.
+  remediation: 'autoindex off;'
+  cwe: [CWE-548]
+  owasp: [A05:2021]
+  tags: [nginx]
+- id: IAC-NX-002
+  title: server_tokens / version disclosure
+  type: file
+  absent: true
+  severity: LOW
+  confidence: low
+  languages: [nginx]
+  pattern: 'server_tokens\s+off'
+  message: server_tokens off is not set - nginx version leaks in headers/errors.
+  remediation: 'server_tokens off;'
+  cwe: [CWE-200]
+  owasp: [A05:2021]
+  tags: [nginx]
+- id: IAC-NX-003
+  title: TLS below 1.2 enabled
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [nginx]
+  pattern: 'ssl_protocols[^;]*(SSLv2|SSLv3|TLSv1\.0|TLSv1 |TLSv1\.1)'
+  message: Obsolete TLS protocol enabled - POODLE/BEAST class attacks.
+  remediation: 'ssl_protocols TLSv1.2 TLSv1.3;'
+  cwe: [CWE-327]
+  owasp: [A02:2021]
+  tags: [nginx, tls]
+- id: IAC-NX-004
+  title: proxy_pass to variable host (SSRF relay candidate)
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [nginx]
+  pattern: 'proxy_pass\s+\$\w+|proxy_pass\s+https?://\$\w+'
+  message: proxy_pass target built from a variable - open proxy risk if client-controlled.
+  remediation: 'Pin upstream hostnames; validate $host.'
+  cwe: [CWE-918]
+  owasp: [A10:2021]
+  tags: [nginx, ssrf]
+# ---------- appsettings ----------
+- id: IAC-AS-001
+  title: Connection string with credentials in appsettings
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [appsettings]
+  pattern: '(?i)(Password|Pwd|User Id|uid)\s*=\s*[^;"'']+'
+  message: Connection string credentials in appsettings.json - committed secrets.
+  remediation: Move to user-secrets/Key Vault env vars.
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [dotnet, secrets]
+- id: IAC-AS-002
+  title: Detailed errors / developer mode enabled
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [appsettings]
+  pattern: '(?i)(DetailedErrors|DeveloperMode|IncludeErrorDetail)\s*"\s*:\s*true'
+  message: Detailed error output enabled - stack traces leak internals in production.
+  remediation: Disable outside Development environment.
+  cwe: [CWE-209]
+  owasp: [A05:2021]
+  tags: [dotnet, config]

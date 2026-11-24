@@ -1,0 +1,205 @@
+# PHP / Laravel rules
+rules:
+- id: PHP-001
+  title: Command execution sink
+  type: pattern
+  severity: CRITICAL
+  confidence: medium
+  languages: [php]
+  pattern: '\b(exec|shell_exec|system|passthru|popen|proc_open|eval|assert)\s*\('
+  context: '(?i)(\$_GET|\$_POST|\$_REQUEST|\$_COOKIE|\$_(request|get|post)|input\(|request\()'
+  message: Command/code execution reached by request superglobals - RCE.
+  remediation: Remove eval/assert; whitelist commands and use escapeshellarg on every argument.
+  cwe: [CWE-78, CWE-95]
+  owasp: [A03:2021]
+  tags: [injection, rce]
+- id: PHP-002
+  title: SQL injection via concatenated query
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [php]
+  pattern: '(->(query|exec|prepare|select)\s*\([^)]*(\$_GET|\$_POST|\$_REQUEST|\.=\s*|"\s*\.\s*\$)|mysql_query\s*\(|mysqli_query\s*\([^)]*\$_(GET|POST|REQUEST))'
+  message: SQL statement built from request data or concatenation - SQL injection.
+  remediation: Use PDO prepared statements or Eloquent parameter binding.
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli]
+- id: PHP-003
+  title: Laravel raw query with interpolation (DB::raw/whereRaw/selectRaw)
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [php]
+  pattern: '(DB::(raw|statement|select|unprepared)|whereRaw|orWhereRaw|selectRaw|orderByRaw|havingRaw|->raw)\s*\([^)]*(\$_(GET|POST|REQUEST)|\{\$|\.\s*\$|"\s*\.)'
+  message: Laravel raw expression with interpolated variable - SQL injection (raw methods bypass binding).
+  remediation: "Use bindings: ->whereRaw('x = ?', [$v]) or parameter placeholders in DB::select."
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli, laravel]
+- id: PHP-004
+  title: Mass assignment of unfiltered request data
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [php]
+  pattern: '(->|::)\s*(create|update|fill|insert|forceFill)\s*\(\s*\$request->(all|input|except|only)?\s*\('
+  message: request->all() passed straight to the model - mass assignment of unintended fields (is_admin, role...).
+  remediation: Use $request->validated() / ->only([...]) and define $fillable on the model.
+  cwe: [CWE-915]
+  owasp: [A04:2021]
+  tags: [mass-assignment, laravel]
+- id: PHP-005
+  title: Unescaped Blade output {!! !!}
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [php]
+  pattern: '\{!!\s*[^!]+\s*!!\}'
+  message: Blade {!! !!} renders raw HTML - XSS if the value carries user input.
+  remediation: Use {{ }} escaped output or Purifier/HTMLPurifier.
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [xss, laravel]
+- id: PHP-006
+  title: CSRF middleware disabled
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [php]
+  pattern: "(VerifyCsrfToken[^\\n]*\\$except|->withoutMiddleware\\([^)]*(csrf|VerifyCsrf)|middleware\\(\\s*['\"]web['\"]\\s*\\)->without)"
+  context: "(?i)(\\*|except|without|csrf)"
+  message: CSRF protection excepted/disabled - state-changing requests become forgeable.
+  remediation: Remove broad $except entries; exempt only signed webhook endpoints.
+  cwe: [CWE-352]
+  owasp: [A01:2021]
+  tags: [csrf, laravel]
+- id: PHP-007
+  title: Insecure deserialization
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [php]
+  pattern: 'unserialize\s*\('
+  context: '(?i)(\$_GET|\$_POST|\$_REQUEST|\$_COOKIE|request|input|file_get_contents|redis|cache)'
+  message: unserialize() on external data - PHP object injection.
+  remediation: Use json_decode; if unserialize needed, pass allowed_classes=false.
+  cwe: [CWE-502]
+  owasp: [A08:2021]
+  tags: [deserialization]
+- id: PHP-008
+  title: File inclusion / path traversal candidate
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [php]
+  pattern: '(include|include_once|require|require_once|file_get_contents|fopen|readfile)\s*\([^)]*(\$_(GET|POST|REQUEST|COOKIE)|\$request->|request\()'
+  message: include/file read driven by request data - LFI/RFI/path traversal.
+  remediation: Whitelist filenames; never include() a variable from input.
+  cwe: [CWE-22, CWE-98]
+  owasp: [A01:2021]
+  tags: [lfi, traversal]
+- id: PHP-009
+  title: Weak password hash (md5/sha1)
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [php]
+  pattern: '\b(md5|sha1|crc32)\s*\('
+  context: '(?i)(pass|pwd|secret|cred|auth|token|salt)'
+  message: md5/sha1 used near password handling.
+  remediation: Use password_hash() with PASSWORD_ARGON2ID or bcrypt.
+  cwe: [CWE-327, CWE-916]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: PHP-010
+  title: extract() on request/array data
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [php]
+  pattern: 'extract\s*\('
+  context: '(?i)(\$_GET|\$_POST|\$_REQUEST|request|input|data)'
+  message: extract() imports arbitrary keys as variables - variable overwrite/injection.
+  remediation: Access array keys explicitly.
+  cwe: [CWE-914]
+  owasp: [A03:2021]
+  tags: [injection]
+- id: PHP-011
+  title: Debug/dump left in code
+  type: pattern
+  severity: LOW
+  confidence: medium
+  languages: [php]
+  pattern: '\b(var_dump|print_r|dd|dump|ray)\s*\(|APP_DEBUG\s*=\s*true|ini_set\(\s*.display_errors.\s*,\s*.1'
+  message: Debug output/display_errors may leak internals in production.
+  remediation: Remove dump calls; ensure APP_DEBUG=false in production.
+  cwe: [CWE-489, CWE-215]
+  owasp: [A05:2021]
+  tags: [debug]
+- id: PHP-012
+  title: SSRF candidate (request value -> outbound call)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [php]
+  source: '(?P<var>\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*(\$_(GET|POST|REQUEST|COOKIE)|request\(|input\(|->query\()'
+  sink: '(file_get_contents|curl_setopt\s*\(\s*\w+\s*,\s*CURLOPT_URL|fopen|Http::(get|post|withHeaders)|SoapClient|fsockopen)\s*\('
+  window: 20
+  message: Request-controlled value reaches an outbound call - SSRF.
+  remediation: Whitelist hosts; block internal ranges.
+  cwe: [CWE-918]
+  owasp: [A10:2021]
+  tags: [ssrf]
+- id: PHP-013
+  title: Hard-coded credential in code
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [php]
+  pattern: '["''](DB_PASSWORD|DB_PASS|MAIL_PASSWORD|AWS_SECRET|STRIPE_SECRET|APP_KEY)["'']\s*(=>|,\s*env|=>.env)\s*\(?\s*["''][^"'']{8,}["'']'
+  message: Credential default literal in config code.
+  remediation: env() with no default secret; keep real values in .env (not committed).
+  cwe: [CWE-798]
+  owasp: [A07:2021]
+  tags: [secrets, laravel]
+- id: PHP-014
+  title: env() outside config files
+  type: pattern
+  severity: LOW
+  confidence: medium
+  languages: [php]
+  pattern: 'env\s*\(\s*["'']'
+  context: '(?i)^(?![^\n]*(config/|Config::))'
+  message: env() called outside config files breaks under config:cache and hides config dependencies.
+  remediation: Move to config/*.php and reference via config().
+  cwe: [CWE-1188]
+  owasp: [A05:2021]
+  tags: [laravel, config]
+- id: PHP-015
+  title: Laravel model without $fillable/$guarded (advisory)
+  type: file
+  absent: true
+  severity: MEDIUM
+  confidence: low
+  languages: [php]
+  pattern: '(\$fillable|\$guarded)'
+  context: '(?i)(extends\s+Model|class\s+\w+\s+extends)'
+  message: Model file without $fillable/$guarded - mass assignment is wide open.
+  remediation: 'Define: protected $fillable = [...] or protected $guarded = ["id"].'
+  cwe: [CWE-915]
+  owasp: [A04:2021]
+  tags: [laravel, mass-assignment]
+- id: PHP-016
+  title: Password confirmation / verification without rate limiting hint
+  type: pattern
+  severity: LOW
+  confidence: low
+  languages: [php]
+  pattern: 'Hash::check\s*\('
+  context: '(?i)(login|password|auth|attempt)'
+  message: Credential check without visible throttling nearby - brute-force surface.
+  remediation: Apply throttle middleware / RateLimiter to auth endpoints.
+  cwe: [CWE-307]
+  owasp: [A07:2021]
+  tags: [laravel, auth]

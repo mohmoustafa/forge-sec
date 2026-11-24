@@ -1,0 +1,207 @@
+# Python backend rules (Django / Flask / FastAPI)
+rules:
+- id: PY-001
+  title: eval()/exec() on dynamic input
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [python]
+  pattern: '\b(eval|exec)\s*\('
+  context: '(?i)(request|input|argv|env|param|data|body|query|user|raw|payload)'
+  message: eval/exec reached by request-derived input - remote code execution.
+  remediation: Remove eval/exec entirely. Use ast.literal_eval for literals or a real parser.
+  fix_example: 'value = ast.literal_eval(raw)'
+  cwe: [CWE-95]
+  owasp: [A03:2021]
+  tags: [injection, rce]
+- id: PY-002
+  title: Shell command injection (shell=True / os.system)
+  type: pattern
+  severity: CRITICAL
+  confidence: medium
+  languages: [python]
+  pattern: '(subprocess\.(run|call|Popen|check_output|check_call)\s*\([^\n)]*shell\s*=\s*True|os\.system\s*\(|os\.popen\s*\()'
+  message: Shell invocation with shell=True or os.system. If any argument is user-controlled this is command injection.
+  remediation: Pass an argument list with shell=False; validate/whitelist the command.
+  fix_example: "subprocess.run(['tar', 'xf', safe_path], shell=False)"
+  cwe: [CWE-78]
+  owasp: [A03:2021]
+  tags: [injection, command]
+- id: PY-003
+  title: Raw SQL built by string interpolation
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [python]
+  pattern: '\b(execute|executemany|raw)\s*\([^\n)]*(f["'']|%[sd]\)|\.format\(|\+\s*\w+)'
+  context: '(?i)(select|insert|update|delete|where|drop|union)'
+  message: SQL statement assembled with f-string/%/.format/concatenation - SQL injection.
+  remediation: Use parameterized queries / ORM filters only.
+  fix_example: "cursor.execute('SELECT * FROM t WHERE id = %s', (uid,))"
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli]
+- id: PY-004
+  title: Deserialization RCE (pickle/marshal/yaml.load)
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [python]
+  pattern: '\b(pickle\.loads?\s*\(|marshal\.loads?\s*\(|yaml\.load\s*\((?![^\n]*SafeLoader))'
+  message: Unsafe deserialization. pickle/marshal/yaml.load on untrusted data = code execution.
+  remediation: Use yaml.safe_load; replace pickle with JSON; never unpickle request data.
+  cwe: [CWE-502]
+  owasp: [A08:2021]
+  tags: [deserialization]
+- id: PY-005
+  title: TLS verification disabled
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [python]
+  pattern: '(verify\s*=\s*False|CERT_NONE|check_hostname\s*=\s*False|_create_unverified_context)'
+  message: TLS certificate verification disabled - MITM exposure.
+  remediation: Remove verify=False; fix the certificate chain instead.
+  cwe: [CWE-295]
+  owasp: [A02:2021]
+  tags: [tls]
+- id: PY-006
+  title: Debug mode enabled
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [python]
+  pattern: '(DEBUG\s*=\s*True|app\.run\([^\n)]*debug\s*=\s*True|\.debug\s*=\s*True)'
+  message: Debug mode in production leaks stack traces and settings; Werkzeug debugger allows code exec.
+  remediation: Drive debug from env and default to False.
+  cwe: [CWE-489]
+  owasp: [A05:2021]
+  tags: [config]
+- id: PY-007
+  title: Weak hash near password handling (MD5/SHA1)
+  type: pattern
+  severity: HIGH
+  confidence: medium
+  languages: [python]
+  pattern: 'hashlib\.(md5|sha1)\s*\('
+  context: '(?i)(pass|pwd|secret|cred|auth)'
+  message: MD5/SHA1 used near password handling.
+  remediation: Use bcrypt/argon2/scrypt or PBKDF2.
+  cwe: [CWE-327, CWE-916]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: PY-008
+  title: Insecure randomness for security tokens
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [python]
+  pattern: '\brandom\.(random|randint|choice|getrandbits|sample)\s*\('
+  context: '(?i)(token|secret|key|salt|nonce|otp|password|session|csrf)'
+  message: random module is not cryptographically secure.
+  remediation: Use secrets.token_hex()/token_urlsafe() or os.urandom.
+  cwe: [CWE-338]
+  owasp: [A02:2021]
+  tags: [crypto]
+- id: PY-009
+  title: SSRF candidate (request value -> outbound HTTP call)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [python]
+  source: '(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*(request\.(GET|POST|args|form|data|json|query_params|values)|input\()'
+  sink: '(requests\.(get|post|put|delete|head|request)|urlopen|urllib\.request\.urlopen)\s*\('
+  window: 20
+  message: Request-controlled value flows into an outbound HTTP call - SSRF.
+  remediation: Whitelist allowed hosts/schemes; resolve and pin DNS; block internal IP ranges.
+  cwe: [CWE-918]
+  owasp: [A10:2021]
+  tags: [ssrf]
+- id: PY-010
+  title: Path traversal candidate (request value -> filesystem path)
+  type: taint
+  severity: HIGH
+  confidence: medium
+  languages: [python]
+  source: '(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*(request\.(GET|POST|args|form|data|json|query_params|values)|input\(|sys\.argv)'
+  sink: '(open|os\.path\.join|Path|send_file|send_from_directory)\s*\('
+  window: 20
+  message: User-controlled value reaches a filesystem path - path traversal.
+  remediation: Resolve the path and assert it stays inside an allowed base directory.
+  cwe: [CWE-22]
+  owasp: [A01:2021]
+  tags: [traversal]
+- id: PY-011
+  title: Django ORM raw()/extra() with interpolation
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [python]
+  pattern: '\.(raw|extra)\s*\([^\n)]*(f["'']|%|\.format\()'
+  message: Django raw SQL with interpolation - SQL injection.
+  remediation: Use the params argument of raw()/extra() or queryset filters.
+  cwe: [CWE-89]
+  owasp: [A03:2021]
+  tags: [sqli, django]
+- id: PY-012
+  title: mark_safe / |safe on dynamic data
+  type: pattern
+  severity: MEDIUM
+  confidence: medium
+  languages: [python]
+  pattern: '\bmark_safe\s*\(|\|\s*safe\b'
+  context: '(?i)(request|input|user|data|param|name|comment)'
+  message: Data marked safe bypasses escaping - XSS if it contains user input.
+  remediation: Escape with django.utils.html.escape or bleach.clean.
+  cwe: [CWE-79]
+  owasp: [A03:2021]
+  tags: [xss]
+- id: PY-013
+  title: XML parsing vulnerable to XXE
+  type: pattern
+  severity: HIGH
+  confidence: high
+  languages: [python]
+  pattern: '\b(xml\.etree\.ElementTree\.(parse|fromstring)|minidom\.parse|xml\.sax\.parse|lxml\.etree\.(parse|fromstring))\s*\('
+  context: '(?i)(request|upload|body|data|file|xml)'
+  message: XML parser on untrusted input - XXE/billion-laughs risk.
+  remediation: Use defusedxml, or lxml with resolve_entities=False, no_network=True.
+  cwe: [CWE-611]
+  owasp: [A05:2021]
+  tags: [xxe]
+- id: PY-014
+  title: JWT decoded without signature verification
+  type: pattern
+  severity: CRITICAL
+  confidence: high
+  languages: [python]
+  pattern: 'jwt\.decode\s*\([^\n)]*(verify\s*=\s*False|["'']none["''])'
+  message: JWT signature verification disabled - forgeable tokens.
+  remediation: Always verify signature and pin allowed algorithms.
+  cwe: [CWE-347]
+  owasp: [A02:2021]
+  tags: [jwt, auth]
+- id: PY-015
+  title: assert used for security checks
+  type: pattern
+  severity: LOW
+  confidence: medium
+  languages: [python]
+  pattern: '^\s*assert\s+.*(auth|perm|token|is_admin|allowed|valid)'
+  message: assert is stripped under python -O; security checks silently disappear.
+  remediation: Replace with explicit checks raising PermissionError/401.
+  cwe: [CWE-617]
+  owasp: [A04:2021]
+  tags: [auth]
+- id: PY-016
+  title: CORS wildcard origin
+  type: pattern
+  severity: MEDIUM
+  confidence: high
+  languages: [python]
+  pattern: '(CORS_ALLOW_ALL_ORIGINS\s*=\s*True|allow_origins\s*=\s*\[\s*["'']\*|Access-Control-Allow-Origin["'']?\s*,\s*["'']\*)'
+  message: CORS allows any origin; combined with credentials this exposes the API to any site.
+  remediation: Restrict allow_origins to trusted domains.
+  cwe: [CWE-942]
+  owasp: [A05:2021]
+  tags: [cors]
